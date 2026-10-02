@@ -1,0 +1,66 @@
+name: Build Nuvio TV Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make side-by-side test package
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/build.gradle.kts')
+          s = p.read_text()
+          old = 'applicationId = "com.nuvio.tv"'
+          new = 'applicationId = "com.nuvio.tv.test"'
+          if old not in s:
+              raise SystemExit('Original full applicationId not found')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('app/src/main/res/values/strings.xml')
+          s = p.read_text()
+          s = s.replace('<string name="app_name">Nuvio</string>', '<string name="app_name">Nuvio TV Test</string>', 1)
+          p.write_text(s)
+          PY
+
+      - name: Build full ARM APKs with test signing
+        env:
+          CI_USE_DEBUG_SIGNING: 'true'
+        run: ./gradlew :app:assembleFullRelease --stacktrace
+
+      - name: Keep ARM64 APK
+        shell: bash
+        run: |
+          mkdir -p out
+          f=$(find app/build/outputs/apk/full/release -type f -name '*arm64-v8a*.apk' | head -n1)
+          if [ -z "$f" ]; then
+            echo 'ARM64 APK not found'
+            find app/build/outputs/apk/full/release -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          cp "$f" out/Nuvio-TV-Test-1.1.0-beta3-arm64.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nuvio-TV-Test-arm64
+          path: out/Nuvio-TV-Test-1.1.0-beta3-arm64.apk
+          if-no-files-found: error
