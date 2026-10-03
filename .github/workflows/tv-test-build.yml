@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for v in RELEASE_KEYSTORE_BASE64 RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD RELEASE_STORE_PASSWORD; do
+          for v in RELEASE_KEYSTORE_BASE64 RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD RELEASE_STORE_PASSWORD LOCAL_PROPERTIES_BASE64; do
             if [ -z "${!v}" ]; then
               echo "Missing GitHub Secret for $v"
               missing=1
@@ -63,13 +63,7 @@ jobs:
 
           keystore_path="${RUNNER_TEMP}/nuvio-tv-test-release.jks"
           printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "$keystore_path"
-
-          if [ -n "${LOCAL_PROPERTIES_BASE64}" ]; then
-            printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
-          else
-            touch local.properties
-            echo 'LOCAL_PROPERTIES_BASE64 is not set; account/service credentials not supplied.'
-          fi
+          printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
 
           set_property() {
             local name="$1"
@@ -84,24 +78,33 @@ jobs:
           set_property NUVIO_RELEASE_KEY_PASSWORD "$RELEASE_KEY_PASSWORD"
           set_property NUVIO_RELEASE_STORE_PASSWORD "$RELEASE_STORE_PASSWORD"
 
-      - name: Build full ARM APKs with release signing
+      - name: Build full APKs with release signing
         run: ./gradlew :app:assembleFullRelease --stacktrace
 
-      - name: Keep ARM64 APK
+      - name: Collect TV-compatible APKs
         shell: bash
         run: |
           mkdir -p out
-          f=$(find app/build/outputs/apk/full/release -type f -name '*arm64-v8a*.apk' | head -n1)
-          if [ -z "$f" ]; then
-            echo 'ARM64 APK not found'
-            find app/build/outputs/apk/full/release -type f -name '*.apk' -print || true
+          dir=app/build/outputs/apk/full/release
+          echo 'Generated APKs:'
+          find "$dir" -type f -name '*.apk' -print
+
+          arm64=$(find "$dir" -type f -name '*arm64-v8a*.apk' | head -n1)
+          arm32=$(find "$dir" -type f -name '*armeabi-v7a*.apk' | head -n1)
+          universal=$(find "$dir" -type f -name '*.apk' ! -name '*arm64-v8a*' ! -name '*armeabi-v7a*' ! -name '*x86*' ! -name '*x86_64*' | head -n1)
+
+          [ -n "$arm64" ] && cp "$arm64" out/Nuvio-TV-Test-1.1.0-beta3-arm64.apk
+          [ -n "$arm32" ] && cp "$arm32" out/Nuvio-TV-Test-1.1.0-beta3-armv7.apk
+          [ -n "$universal" ] && cp "$universal" out/Nuvio-TV-Test-1.1.0-beta3-universal.apk
+
+          if [ ! -f out/Nuvio-TV-Test-1.1.0-beta3-armv7.apk ] && [ ! -f out/Nuvio-TV-Test-1.1.0-beta3-universal.apk ]; then
+            echo 'Neither ARMv7 nor universal APK was generated'
             exit 1
           fi
-          cp "$f" out/Nuvio-TV-Test-1.1.0-beta3-arm64.apk
 
-      - name: Upload APK
+      - name: Upload TV APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Nuvio-TV-Test-arm64
-          path: out/Nuvio-TV-Test-1.1.0-beta3-arm64.apk
+          name: Nuvio-TV-Test-TV-compatible
+          path: out/*.apk
           if-no-files-found: error
