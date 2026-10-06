@@ -22,6 +22,57 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Apply catalog refresh test fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          repo = Path('app/src/main/java/com/nuvio/tv/data/repository/AddonRepositoryImpl.kt')
+          s = repo.read_text()
+          old_ttl = 'private const val MANIFEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000L'
+          new_ttl = 'private const val MANIFEST_CACHE_TTL_MS = 15 * 60 * 1000L'
+          if old_ttl not in s:
+              raise SystemExit('Manifest TTL marker not found')
+          s = s.replace(old_ttl, new_ttl, 1)
+
+          old_init = '''    init {
+        syncScope.launch { loadManifestCacheFromDisk() }
+    }
+'''
+          new_init = '''    init {
+        syncScope.launch { loadManifestCacheFromDisk() }
+        // Keep manifests fresh while Android TV leaves Nuvio alive for long periods.
+        syncScope.launch {
+            while (true) {
+                delay(MANIFEST_CACHE_TTL_MS)
+                val urls = preferences.installedAddonUrls.first()
+                val enabledStates = preferences.addonEnabledStates.first()
+                scheduleManifestRefresh(
+                    urls.filter { url -> enabledStates[canonicalizeUrl(url)] ?: true }
+                )
+            }
+        }
+    }
+'''
+          if old_init not in s:
+              raise SystemExit('Repository init marker not found')
+          repo.write_text(s.replace(old_init, new_init, 1))
+
+          home = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelCatalogUtils.kt')
+          h = home.read_text()
+          old_sort = '''        }
+        .sorted()
+        .joinToString(separator = ",")
+'''
+          new_sort = '''        }
+        .joinToString(separator = ",")
+'''
+          if old_sort not in h:
+              raise SystemExit('Home catalog signature sort marker not found')
+          home.write_text(h.replace(old_sort, new_sort, 1))
+          PY
+
       - name: Make side-by-side test package
         shell: bash
         run: |
