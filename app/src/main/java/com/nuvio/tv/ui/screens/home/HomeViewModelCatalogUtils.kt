@@ -53,7 +53,8 @@ internal fun HomeViewModel.buildHomeCatalogLoadSignature(addons: List<Addon>): S
                 ).joinToString("|")
             }
         }
-        .sorted()
+        // Keep addon + manifest catalog order significant. Sorting here made a pure reorder
+        // produce the same signature, so Home could keep the old row order indefinitely.
         .joinToString(separator = ",")
     val disabledSignature = disabledHomeCatalogKeys
         .asSequence()
@@ -228,213 +229,89 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
     val allAvailable = (defaultOrder + collectionKeys).toSet()
 
     if (followAddonsOrderEnabled) {
-        // In follow addons order mode, addon catalogs always stay in manifest order.
-        // Collections are positioned based on their relative position in saved order.
-        val savedValid = homeCatalogOrderKeys
-            .asSequence()
-            .filter { it in allAvailable }
-            .distinct()
-            .toList()
-
+        val savedValid = homeCatalogOrderKeys.asSequence().filter { it in allAvailable }.distinct().toList()
         val collectionKeysSet = collectionKeys.toSet()
-
         if (savedValid.isNotEmpty()) {
             val result = mutableListOf<String>()
             var addonPointer = 0
-
             for (savedKey in savedValid) {
-                if (savedKey in collectionKeysSet) {
-                    result.add(savedKey)
-                } else {
-                    // Addon catalog - advance manifest pointer to include all up to this one
+                if (savedKey in collectionKeysSet) result.add(savedKey) else {
                     val targetIdx = defaultOrder.indexOf(savedKey)
-                    if (targetIdx >= 0) {
-                        while (addonPointer <= targetIdx) {
-                            val ak = defaultOrder[addonPointer]
-                            if (ak !in result) {
-                                result.add(ak)
-                            }
-                            addonPointer++
-                        }
+                    if (targetIdx >= 0) while (addonPointer <= targetIdx) {
+                        val ak = defaultOrder[addonPointer]
+                        if (ak !in result) result.add(ak)
+                        addonPointer++
                     }
                 }
             }
-            // Append remaining addon keys
             while (addonPointer < defaultOrder.size) {
                 val ak = defaultOrder[addonPointer]
-                if (ak !in result) {
-                    result.add(ak)
-                }
+                if (ak !in result) result.add(ak)
                 addonPointer++
             }
-            // Append any collections not in saved order
-            for (ck in collectionKeys) {
-                if (ck !in result) {
-                    result.add(ck)
-                }
-            }
-
-            // Normalize: push collections that ended up mid-addon-block to the block boundary
-            val addonKeyToOwner = buildAddonKeyOwnerMap(addons)
-            val normalized = normalizeCollectionBoundaries(result, addonKeyToOwner)
-
-            synchronized(catalogStateLock) {
-                catalogOrder.clear()
-                catalogOrder.addAll(normalized)
-            }
-        } else {
-            // No saved order - manifest order + collections at end
-            synchronized(catalogStateLock) {
-                catalogOrder.clear()
-                catalogOrder.addAll(defaultOrder + collectionKeys)
-            }
-        }
+            for (ck in collectionKeys) if (ck !in result) result.add(ck)
+            val normalized = normalizeCollectionBoundaries(result, buildAddonKeyOwnerMap(addons))
+            synchronized(catalogStateLock) { catalogOrder.clear(); catalogOrder.addAll(normalized) }
+        } else synchronized(catalogStateLock) { catalogOrder.clear(); catalogOrder.addAll(defaultOrder + collectionKeys) }
     } else {
-        val savedValid = homeCatalogOrderKeys
-            .asSequence()
-            .filter { it in allAvailable }
-            .distinct()
-            .toList()
-
+        val savedValid = homeCatalogOrderKeys.asSequence().filter { it in allAvailable }.distinct().toList()
         val savedSet = savedValid.toSet()
-        val unsavedCatalogs = defaultOrder.filterNot { it in savedSet }
-        val unsavedCollections = collectionKeys.filterNot { it in savedSet }
-        val mergedOrder = savedValid + unsavedCatalogs + unsavedCollections
-
-        synchronized(catalogStateLock) {
-            catalogOrder.clear()
-            catalogOrder.addAll(mergedOrder)
-        }
+        val mergedOrder = savedValid + defaultOrder.filterNot { it in savedSet } + collectionKeys.filterNot { it in savedSet }
+        synchronized(catalogStateLock) { catalogOrder.clear(); catalogOrder.addAll(mergedOrder) }
     }
 }
 
 private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<String> {
     val orderedKeys = mutableListOf<String>()
-    addons.forEach { addon ->
-        addon.catalogs
-            .filterNot {
-                !it.shouldShowOnHome() || isCatalogDisabled(
-                    addonBaseUrl = addon.baseUrl,
-                    addonId = addon.id,
-                    type = it.apiType,
-                    catalogId = it.id,
-                    catalogName = it.name
-                )
-            }
-            .forEach { catalog ->
-                val key = catalogKey(
-                    addonId = addon.id,
-                    type = catalog.apiType,
-                    catalogId = catalog.id
-                )
-                if (key !in orderedKeys) {
-                    orderedKeys.add(key)
-                }
-            }
-    }
+    addons.forEach { addon -> addon.catalogs.filterNot {
+        !it.shouldShowOnHome() || isCatalogDisabled(addon.baseUrl, addon.id, it.apiType, it.id, it.name)
+    }.forEach { catalog ->
+        val key = catalogKey(addon.id, catalog.apiType, catalog.id)
+        if (key !in orderedKeys) orderedKeys.add(key)
+    } }
     return orderedKeys
 }
 
-internal fun HomeViewModel.isCatalogDisabled(
-    addonBaseUrl: String,
-    addonId: String,
-    type: String,
-    catalogId: String,
-    catalogName: String
-): Boolean {
-    if (disableCatalogKey(addonBaseUrl, type, catalogId, catalogName) in disabledHomeCatalogKeys) {
-        return true
-    }
-    // Backward compatibility with previously stored keys.
+internal fun HomeViewModel.isCatalogDisabled(addonBaseUrl: String, addonId: String, type: String, catalogId: String, catalogName: String): Boolean {
+    if (disableCatalogKey(addonBaseUrl, type, catalogId, catalogName) in disabledHomeCatalogKeys) return true
     return catalogKey(addonId, type, catalogId) in disabledHomeCatalogKeys
 }
 
-internal fun HomeViewModel.disableCatalogKey(
-    addonBaseUrl: String,
-    type: String,
-    catalogId: String,
-    catalogName: String
-): String {
-    return "${addonBaseUrl}_${catalogTypeKey(type)}_${catalogId}_${catalogName}"
+internal fun HomeViewModel.disableCatalogKey(addonBaseUrl: String, type: String, catalogId: String, catalogName: String): String =
+    "${addonBaseUrl}_${catalogTypeKey(type)}_${catalogId}_${catalogName}"
+
+internal fun CatalogDescriptor.isSearchOnlyCatalog(): Boolean = extra.any { it.name.equals("search", ignoreCase = true) && it.isRequired }
+internal fun CatalogDescriptor.shouldShowOnHome(): Boolean = !isSearchOnlyCatalog() && (!hasExplicitShowInHome || showInHome)
+internal fun MetaPreview.hasHeroArtwork(): Boolean = !background.isNullOrBlank()
+internal fun HomeViewModel.extractYear(releaseInfo: String?): String? = releaseInfo?.takeIf { it.isNotBlank() }?.let { Regex("\\b(19|20)\\d{2}\\b").find(it)?.value }
+
+private fun buildAddonKeyOwnerMap(addons: List<Addon>): Map<String, String> = buildMap {
+    addons.forEach { addon -> addon.catalogs.forEach { catalog -> put(catalogRowLegacyKey(addon.id, catalog.apiType, catalog.id), addon.id) } }
 }
 
-internal fun CatalogDescriptor.isSearchOnlyCatalog(): Boolean {
-    return extra.any { extra -> extra.name.equals("search", ignoreCase = true) && extra.isRequired }
-}
-
-internal fun CatalogDescriptor.shouldShowOnHome(): Boolean {
-    if (isSearchOnlyCatalog()) return false
-    return !hasExplicitShowInHome || showInHome
-}
-
-internal fun MetaPreview.hasHeroArtwork(): Boolean {
-    return !background.isNullOrBlank()
-}
-
-internal fun HomeViewModel.extractYear(releaseInfo: String?): String? {
-    if (releaseInfo.isNullOrBlank()) return null
-    return Regex("\\b(19|20)\\d{2}\\b").find(releaseInfo)?.value
-}
-
-private fun buildAddonKeyOwnerMap(addons: List<Addon>): Map<String, String> {
-    val map = mutableMapOf<String, String>()
-    addons.forEach { addon ->
-        addon.catalogs.forEach { catalog ->
-            val key = catalogRowLegacyKey(addon.id, catalog.apiType, catalog.id)
-            map[key] = addon.id
-        }
-    }
-    return map
-}
-
-private fun normalizeCollectionBoundaries(
-    order: List<String>,
-    addonKeyToOwner: Map<String, String>
-): List<String> {
-    val result = order.toMutableList()
-    var changed = true
+private fun normalizeCollectionBoundaries(order: List<String>, addonKeyToOwner: Map<String, String>): List<String> {
+    val result = order.toMutableList(); var changed = true
     while (changed) {
-        changed = false
-        var i = 0
+        changed = false; var i = 0
         while (i < result.size) {
             val key = result[i]
-            if (!key.startsWith("collection_")) {
-                i++
-                continue
-            }
-            val prevOwner = findOwnerBefore(result, i, addonKeyToOwner)
-            val nextOwner = findOwnerAfter(result, i, addonKeyToOwner)
+            if (!key.startsWith("collection_")) { i++; continue }
+            val prevOwner = findOwnerBefore(result, i, addonKeyToOwner); val nextOwner = findOwnerAfter(result, i, addonKeyToOwner)
             if (prevOwner != null && nextOwner != null && prevOwner == nextOwner) {
-                // Collection is mid-block, push to end of this addon block
-                result.removeAt(i)
-                var insertPos = i
-                while (insertPos < result.size &&
-                    !result[insertPos].startsWith("collection_") &&
-                    addonKeyToOwner[result[insertPos]] == prevOwner
-                ) {
-                    insertPos++
-                }
-                result.add(insertPos, key)
-                if (insertPos != i) changed = true
-                i++
-            } else {
-                i++
-            }
+                result.removeAt(i); var insertPos = i
+                while (insertPos < result.size && !result[insertPos].startsWith("collection_") && addonKeyToOwner[result[insertPos]] == prevOwner) insertPos++
+                result.add(insertPos, key); if (insertPos != i) changed = true; i++
+            } else i++
         }
     }
     return result
 }
 
 private fun findOwnerBefore(order: List<String>, index: Int, owners: Map<String, String>): String? {
-    for (j in index - 1 downTo 0) {
-        if (!order[j].startsWith("collection_")) return owners[order[j]]
-    }
+    for (j in index - 1 downTo 0) if (!order[j].startsWith("collection_")) return owners[order[j]]
     return null
 }
-
 private fun findOwnerAfter(order: List<String>, index: Int, owners: Map<String, String>): String? {
-    for (j in index + 1 until order.size) {
-        if (!order[j].startsWith("collection_")) return owners[order[j]]
-    }
+    for (j in index + 1 until order.size) if (!order[j].startsWith("collection_")) return owners[order[j]]
     return null
 }
