@@ -65,17 +65,17 @@ jobs:
           CI_USE_DEBUG_SIGNING: 'true'
         run: ./gradlew :app:assembleFullRelease --stacktrace
 
-      - name: Prepare ARM64 APK
+      - name: Prepare ARMv7 APK
         shell: bash
         run: |
           mkdir -p out
-          f=$(find app/build/outputs/apk/full/release -type f -name '*arm64-v8a*.apk' | head -n 1)
+          f=$(find app/build/outputs/apk/full/release -type f \( -name '*armeabi-v7a*.apk' -o -name '*armv7*.apk' \) | head -n 1)
           test -n "$f"
-          cp "$f" out/Nuvio-TV-Test-1.1.0-beta3-arm64.apk
+          cp "$f" out/Nuvio-TV-Test-1.1.0-beta3-armv7.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Nuvio-TV-Test-arm64
-          path: out/Nuvio-TV-Test-1.1.0-beta3-arm64.apk
+          name: Nuvio-TV-Test-armv7
+          path: out/Nuvio-TV-Test-1.1.0-beta3-armv7.apk
           if-no-files-found: error
