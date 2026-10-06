@@ -40,10 +40,20 @@ jobs:
 
           home_vm = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModel.kt")
           v = home_vm.read_text()
+          state_marker = "    val uiState: StateFlow<HomeUiState> by lazy { createShuffleHomeState() }\n"
+          if "private var homeManifestRefreshJob: Job? = null" not in v:
+              if state_marker not in v:
+                  raise SystemExit("Home refresh state marker not found")
+              v = v.replace(
+                  state_marker,
+                  state_marker + "\n    private var homeManifestRefreshJob: Job? = null\n",
+                  1,
+              )
           old_visit = "    fun beginShuffleHomeVisit() {\n        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }\n    }"
-          new_visit = "    fun beginShuffleHomeVisit() {\n        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }\n        viewModelScope.launch {\n            val addons = addonRepository.getInstalledAddons().first()\n            addons\n                .asSequence()\n                .filter { it.enabled }\n                .map { it.baseUrl }\n                .filter { it.isNotBlank() }\n                .distinct()\n                .toList()\n                .forEach { baseUrl -> addonRepository.fetchAddon(baseUrl) }\n        }\n    }"
-          if old_visit in v:
-              home_vm.write_text(v.replace(old_visit, new_visit, 1))
+          new_visit = "    fun beginShuffleHomeVisit() {\n        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }\n        // One refresh per Home activation, with no timer/polling. Ignore overlapping visits\n        // while a sweep is already running. fetchAddon preserves same-version change detection.\n        if (homeManifestRefreshJob?.isActive != true) {\n            homeManifestRefreshJob = viewModelScope.launch {\n                val addons = addonRepository.getInstalledAddons().first()\n                addons\n                    .asSequence()\n                    .filter { it.enabled }\n                    .map { it.baseUrl }\n                    .filter { it.isNotBlank() }\n                    .distinct()\n                    .forEach { baseUrl -> addonRepository.fetchAddon(baseUrl) }\n            }\n        }\n    }"
+          if old_visit not in v:
+              raise SystemExit("Home visit marker not found")
+          home_vm.write_text(v.replace(old_visit, new_visit, 1))
 
           gradle = Path("app/build.gradle.kts")
           g = gradle.read_text()
