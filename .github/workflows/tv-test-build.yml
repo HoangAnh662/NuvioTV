@@ -25,38 +25,71 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Patch test build
+      - name: Patch instant catalog refresh test build
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          repo = Path("app/src/main/java/com/nuvio/tv/data/repository/AddonRepositoryImpl.kt")
-          s = repo.read_text()
-          s = s.replace(
-              "private const val MANIFEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000L",
-              "private const val MANIFEST_CACHE_TTL_MS = 15 * 60 * 1000L",
-              1,
-          )
-          repo.write_text(s)
+          # Preserve manifest order in the Home load signature so reorder-only
+          # manifest changes invalidate/rebuild Home.
+          home_utils = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelCatalogUtils.kt")
+          h = home_utils.read_text()
+          marker = '''        }
+        .sorted()
+        .joinToString(separator = ",")
+'''
+          replacement = '''        }
+        .joinToString(separator = ",")
+'''
+          if marker not in h:
+              raise SystemExit("Home catalog signature marker not found")
+          home_utils.write_text(h.replace(marker, replacement, 1))
+
+          # Refresh manifests once whenever Home becomes active/visited. This is
+          # event-driven (not a timer), so changes arrive immediately without
+          # polling the addon servers continuously.
+          home_vm = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModel.kt")
+          v = home_vm.read_text()
+          old_visit = '''    fun beginShuffleHomeVisit() {
+        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }
+    }
+'''
+          new_visit = '''    fun beginShuffleHomeVisit() {
+        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }
+        viewModelScope.launch {
+            val addons = addonRepository.getInstalledAddons().first()
+            addons
+                .asSequence()
+                .filter { it.enabled }
+                .map { it.baseUrl }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .toList()
+                .map { baseUrl ->
+                    kotlinx.coroutines.async { addonRepository.fetchAddon(baseUrl) }
+                }
+                .forEach { it.await() }
+        }
+    }
+'''
+          if old_visit not in v:
+              raise SystemExit("Home visit marker not found")
+          home_vm.write_text(v.replace(old_visit, new_visit, 1))
 
           gradle = Path("app/build.gradle.kts")
           g = gradle.read_text()
-          g = g.replace(
-              'applicationId = "com.nuvio.tv"',
-              'applicationId = "com.nuvio.tv.test"',
-              1,
-          )
-          gradle.write_text(g)
+          old_app_id = 'applicationId = "com.nuvio.tv"'
+          if old_app_id not in g:
+              raise SystemExit("Original applicationId not found")
+          gradle.write_text(g.replace(old_app_id, 'applicationId = "com.nuvio.tv.test"', 1))
 
           strings = Path("app/src/main/res/values/strings.xml")
           x = strings.read_text()
-          x = x.replace(
-              '<string name="app_name">Nuvio</string>',
-              '<string name="app_name">Nuvio TV Test</string>',
-              1,
-          )
-          strings.write_text(x)
+          old_name = '<string name="app_name">Nuvio</string>'
+          if old_name not in x:
+              raise SystemExit("Original app name not found")
+          strings.write_text(x.replace(old_name, '<string name="app_name">Nuvio TV Test</string>', 1))
           PY
 
       - name: Build ARM APKs
