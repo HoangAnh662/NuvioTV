@@ -2,6 +2,9 @@ name: Build Nuvio TV Test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/catalog-manifest-refresh
 
 permissions:
   contents: read
