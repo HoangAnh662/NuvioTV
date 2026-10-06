@@ -25,70 +25,38 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Patch instant catalog refresh test build
+      - name: Patch full instant catalog refresh
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          # Preserve manifest order in the Home load signature so reorder-only
-          # manifest changes invalidate/rebuild Home.
           home_utils = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelCatalogUtils.kt")
           h = home_utils.read_text()
-          marker = '''        }
-        .sorted()
-        .joinToString(separator = ",")
-'''
-          replacement = '''        }
-        .joinToString(separator = ",")
-'''
-          if marker not in h:
-              raise SystemExit("Home catalog signature marker not found")
-          home_utils.write_text(h.replace(marker, replacement, 1))
+          old = "        .sorted()\n        .joinToString(separator = \",\")"
+          new = "        .joinToString(separator = \",\")"
+          if old in h:
+              home_utils.write_text(h.replace(old, new, 1))
 
-          # Refresh manifests once whenever Home becomes active/visited. This is
-          # event-driven (not a timer), so changes arrive immediately without
-          # polling the addon servers continuously.
           home_vm = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModel.kt")
           v = home_vm.read_text()
-          old_visit = '''    fun beginShuffleHomeVisit() {
-        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }
-    }
-'''
-          new_visit = '''    fun beginShuffleHomeVisit() {
-        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }
-        viewModelScope.launch {
-            val addons = addonRepository.getInstalledAddons().first()
-            addons
-                .asSequence()
-                .filter { it.enabled }
-                .map { it.baseUrl }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .toList()
-                .map { baseUrl ->
-                    kotlinx.coroutines.async { addonRepository.fetchAddon(baseUrl) }
-                }
-                .forEach { it.await() }
-        }
-    }
-'''
-          if old_visit not in v:
-              raise SystemExit("Home visit marker not found")
-          home_vm.write_text(v.replace(old_visit, new_visit, 1))
+          old_visit = "    fun beginShuffleHomeVisit() {\n        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }\n    }"
+          new_visit = "    fun beginShuffleHomeVisit() {\n        shuffleHomeRefresh.update { it.copy(visit = it.visit + 1) }\n        viewModelScope.launch {\n            val addons = addonRepository.getInstalledAddons().first()\n            addons\n                .asSequence()\n                .filter { it.enabled }\n                .map { it.baseUrl }\n                .filter { it.isNotBlank() }\n                .distinct()\n                .toList()\n                .map { baseUrl ->\n                    kotlinx.coroutines.async { addonRepository.fetchAddon(baseUrl) }\n                }\n                .forEach { it.await() }\n        }\n    }"
+          if old_visit in v:
+              home_vm.write_text(v.replace(old_visit, new_visit, 1))
 
           gradle = Path("app/build.gradle.kts")
           g = gradle.read_text()
-          old_app_id = 'applicationId = "com.nuvio.tv"'
-          if old_app_id not in g:
-              raise SystemExit("Original applicationId not found")
-          gradle.write_text(g.replace(old_app_id, 'applicationId = "com.nuvio.tv.test"', 1))
+          old_id = 'applicationId = "com.nuvio.tv"'
+          if old_id not in g:
+              raise SystemExit("applicationId marker not found")
+          gradle.write_text(g.replace(old_id, 'applicationId = "com.nuvio.tv.test"', 1))
 
           strings = Path("app/src/main/res/values/strings.xml")
           x = strings.read_text()
           old_name = '<string name="app_name">Nuvio</string>'
           if old_name not in x:
-              raise SystemExit("Original app name not found")
+              raise SystemExit("app name marker not found")
           strings.write_text(x.replace(old_name, '<string name="app_name">Nuvio TV Test</string>', 1))
           PY
 
