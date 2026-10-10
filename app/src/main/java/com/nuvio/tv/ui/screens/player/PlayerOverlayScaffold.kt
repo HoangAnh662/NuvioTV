@@ -33,7 +33,7 @@ internal fun PlayerOverlayScaffold(
     captureKeys: Boolean = true,
     dismissOnCenter: Boolean = false,
     dismissOnBackgroundClick: Boolean = false,
-    overlayTint: Color = Color.Black.copy(alpha = 0.34f),
+    overlayTint: Color = Color.Black.copy(alpha = 0.16f),
     contentPadding: PaddingValues = PaddingValues(),
     topEndContent: (@Composable () -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
@@ -108,15 +108,15 @@ internal fun PlayerOverlayScaffold(
                     .drawWithCache {
                         val horizontalGradient = Brush.horizontalGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = 0.88f),
+                                Color.Black.copy(alpha = 0.42f),
                                 Color.Transparent
                             )
                         )
                         val verticalGradient = Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0f to Color.Black.copy(alpha = 0.6f),
-                                0.3f to Color.Black.copy(alpha = 0.4f),
-                                0.6f to Color.Black.copy(alpha = 0.2f),
+                                0f to Color.Black.copy(alpha = 0.32f),
+                                0.3f to Color.Black.copy(alpha = 0.22f),
+                                0.6f to Color.Black.copy(alpha = 0.10f),
                                 1f to Color.Transparent
                             )
                         )
