@@ -2192,7 +2192,7 @@ private fun PlayerControlsOverlay(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.7f),
+                            Color.Black.copy(alpha = 0.48f),
                             Color.Transparent
                         )
                     )
@@ -2209,7 +2209,7 @@ private fun PlayerControlsOverlay(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.8f)
+                            Color.Black.copy(alpha = 0.55f)
                         )
                     )
                 )
