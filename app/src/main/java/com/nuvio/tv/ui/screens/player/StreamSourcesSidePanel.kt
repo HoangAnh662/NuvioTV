@@ -114,8 +114,10 @@ internal fun StreamSourcesSidePanel(
     }
     val firstStreamKey = streamKeys.firstOrNull()
     val streamFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
-    streamKeys.forEach { key ->
-        streamFocusRequesters.getOrPut(key) { FocusRequester() }
+    remember(streamKeys) {
+        val validKeys = streamKeys.toHashSet()
+        streamFocusRequesters.keys.retainAll(validKeys)
+        streamKeys.forEach { key -> streamFocusRequesters.getOrPut(key) { FocusRequester() } }
     }
     var firstCardHasFocus by remember(firstStreamKey) { mutableStateOf(false) }
 
@@ -123,7 +125,7 @@ internal fun StreamSourcesSidePanel(
     var closeButtonHasFocus by remember { mutableStateOf(false) }
     var chipsHasFocus by remember { mutableStateOf(false) }
 
-    LaunchedEffect(streamKeys, focusedStreamKey, userMovedFromFirstResult) {
+    LaunchedEffect(streamKeys) {
         if (!userMovedFromFirstResult) return@LaunchedEffect
         val key = focusedStreamKey ?: return@LaunchedEffect
         val newIndex = streamKeys.indexOf(key)
@@ -377,8 +379,8 @@ internal fun StreamSourcesSidePanel(
                             .onKeyEvent { event ->
                                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
 
-                                // Throttle rapid key repeats (long-press)
-                                if (event.nativeKeyEvent.repeatCount > 0) {
+                                // Throttle only navigation repeats; never swallow OK/Enter presses.
+                                if (event.nativeKeyEvent.repeatCount > 0 && event.key in listOf(Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight)) {
                                     val now = android.os.SystemClock.uptimeMillis()
                                     if (now - lastKeyRepeatDispatchRef.get() < 112L) return@onKeyEvent true
                                     lastKeyRepeatDispatchRef.set(now)
