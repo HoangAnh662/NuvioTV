@@ -1145,7 +1145,7 @@ private fun StreamsList(
                 // Throttle rapid key repeats (long-press)
                 if (event.nativeKeyEvent.repeatCount > 0) {
                     val now = android.os.SystemClock.uptimeMillis()
-                    if (now - lastKeyRepeatDispatchRef.get() < 112L) return@onKeyEvent true
+                    if (now - lastKeyRepeatDispatchRef.get() < 85L) return@onKeyEvent true
                     lastKeyRepeatDispatchRef.set(now)
                 }
                 if (event.key == Key.DirectionDown) {
