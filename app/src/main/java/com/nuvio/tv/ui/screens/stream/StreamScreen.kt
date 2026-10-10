@@ -1271,8 +1271,8 @@ private fun StreamCard(
                 } else false
             } else Modifier),
         colors = CardDefaults.colors(
-            containerColor = NuvioTheme.colors.BackgroundElevated,
-            focusedContainerColor = NuvioTheme.colors.BackgroundElevated
+            containerColor = Color(0xA6263442),
+            focusedContainerColor = Color(0xC23A4D60)
         ),
         shape = CardDefaults.shape(shape = cardShape),
         border = if (hasGradientFocusRing) {
