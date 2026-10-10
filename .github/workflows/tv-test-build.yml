@@ -2,6 +2,9 @@ name: Build Nuvio TV Test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - tv-test
 
 permissions:
   contents: read
